@@ -9,6 +9,35 @@ use base qw/Device::Chip/;
 
 use Time::HiRes q/usleep/;
 
+=head1 NAME
+
+C<Device::Chip::PCA9685> - A C<Device::Chip> implementation for the PCA9685 chip
+
+=head1 DESCRIPTION
+
+This class implements a L<Device::Chip> interface for the PCA9685 chip, a 12-bit 16 channel PWM driver.
+
+=head1 SYNOPSIS
+
+    use Device::Chip::PCA9685;
+    use Device::Chip::Adapter;
+
+    my $adapter = Device::Chip::Adapter->new_from_description("LinuxKernel");
+
+    my $chip = Device::Chip::PCA9685->new();
+    # This is the i2c bus on an RPI 2 B+
+    $chip->mount($adapter, bus => '/dev/i2c-1')->get;
+    
+    $chip->set_frequency(400); # 400 Hz
+    
+    $chip->set_channel_value(10, 1024); # Set channel 10 to 25% (1024/4096)
+    
+    $chip->set_channel_full_value(10, 1024, 3192); # Set channel 10 to ON at COUNTER=1024, and OFF at COUNTER=3192 (50% duty cycle, with 25% phase difference)
+
+=head1 METHODS
+
+=cut
+
 my %REGS = (
     MODE1 => {addr => 0},
     MODE2 => {addr => 1},
@@ -160,20 +189,6 @@ sub set_default_mode {
     $self->_command(MODE2 => 0b000_00100);
 }
 
-# =head2 enable
-# 
-#     $chip->enable()
-#     
-# Set the prescaler, frequency, and turn on the outputs
-# 
-# =cut
-# 
-# sub enable {
-#     my $self = shift;
-# 
-#     
-# }
-
 =head2 set_frequency
 
     $chip->set_frequency()
@@ -199,11 +214,17 @@ sub set_frequency {
     $self->_command(PRE_SCALE => $divisor);
     $self->_command(MODE1 => $old_mode1);
     usleep(5000);
-    $self->_command(MODE1 => $old_mode1 | 0x80);
+    $self->_command(MODE1 => $old_mode1 | 0x80); # turn on the external clock, should this be optional?
     
     my $realfreq = 25000000 / (($divisor + 1)*(4096));
     
     return $realfreq;
 }
+
+=head1 AUTHOR
+
+Ryan Voots, <simcop2387@simcop2387.info>
+
+=cut
 
 1;
