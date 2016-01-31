@@ -3,7 +3,7 @@ package Device::Chip::PCA9685;
 use strict;
 use warnings;
 
-our $VERSION = 'v0.01';
+our $VERSION = 'v0.1';
 
 use base qw/Device::Chip/;
 
@@ -28,6 +28,7 @@ This class implements a L<Device::Chip> interface for the PCA9685 chip, a 12-bit
     # This is the i2c bus on an RPI 2 B+
     $chip->mount($adapter, bus => '/dev/i2c-1')->get;
     
+    $chip->enable();
     $chip->set_frequency(400); # 400 Hz
     
     $chip->set_channel_value(10, 1024); # Set channel 10 to 25% (1024/4096)
@@ -69,9 +70,6 @@ sub _command {
     my ($register, @bytes) = @_;
     
     my $regv = $REGS{$register}{addr};
-    
-    use Data::Dumper;
-    print Dumper({reg => $register, bytes => \@bytes});
     
     $self->protocol->write(pack("C*", $regv, @bytes));
 }
@@ -219,6 +217,22 @@ sub set_frequency {
     my $realfreq = 25000000 / (($divisor + 1)*(4096));
     
     return $realfreq;
+}
+
+=head2 enable
+
+    $chip->enable()
+
+Enable the device.  Must be the first thing done with the device.
+
+=cut
+
+sub enable {
+    my $self = shift;
+
+    $self->_command(MODE1 => 0);
+
+    return;
 }
 
 =head1 AUTHOR

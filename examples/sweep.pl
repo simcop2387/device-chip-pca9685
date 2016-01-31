@@ -14,6 +14,7 @@ my $chip = Device::Chip::PCA9685->new();
 # This is the i2c bus on an RPI 2 B+
 $chip->mount($adapter, bus => '/dev/i2c-1')->get;
 
+$chip->enable();
 $chip->set_frequency(400); # 400 Hz
 
 for (0..4095) {
