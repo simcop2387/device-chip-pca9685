@@ -71,7 +71,8 @@ sub _command {
     
     my $regv = $REGS{$register}{addr};
     
-    $self->protocol->write(pack("C*", $regv, @bytes));
+    $self->protocol->write(pack("C*", $regv, @bytes))->get;
+    return;
 }
 
 # All our registers are single 8 bit values.
