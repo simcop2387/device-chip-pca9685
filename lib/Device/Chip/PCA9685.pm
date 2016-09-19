@@ -243,6 +243,7 @@ sub enable {
 =head1 AUTHOR
 
 Ryan Voots, <simcop2387@simcop2387.info>
+Paul 'LeoNerd' Evans <leonerd@leonerd.org.uk>
 
 =cut
 

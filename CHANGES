@@ -1,3 +1,8 @@
+V0.9
+* A large number of fixes by Paul 'Leonerd' Evans.
+  * Fixes the use of Future internally, and externally.  This breaks API compatibility, but you knew that wasn't safe anyway.
+  * Add some tests with Test::Device::Chip::Adapter
+
 V0.1
 * First good release
 * added ->enable
