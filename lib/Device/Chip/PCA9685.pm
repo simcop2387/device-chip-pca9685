@@ -46,37 +46,22 @@ my %REGS = (
     SUBADR2 => {addr => 3},
     SUBADR3 => {addr => 4},
     ALLCALLADR => {addr => 5},
-    ALL_CHAN_ON_L => {addr => 0xFA},
-    ALL_CHAN_ON_H => {addr => 0xFB},
-    ALL_CHAN_OFF_L => {addr => 0xFC},
-    ALL_CHAN_OFF_H => {addr => 0xFD},
+    ALL_CHAN_ON => {addr => 0xFA}, # 16bit
+    ALL_CHAN_OFF => {addr => 0xFC}, # 16bit
     PRE_SCALE => {addr => 0xFE},
     TEST_MODE => {addr => 0xFF},
 );
 
 for my $n (0..15) {
-    $REGS{"CHAN${n}_ON_L"}  = {addr => 0x06 + $n * 4};
-    $REGS{"CHAN${n}_ON_H"}  = {addr => 0x07 + $n * 4};
-    $REGS{"CHAN${n}_OFF_L"} = {addr => 0x08 + $n * 4};
-    $REGS{"CHAN${n}_OFF_H"} = {addr => 0x09 + $n * 4};
+    $REGS{"CHAN${n}_ON"}  = {addr => 0x06 + $n * 4}; # 16bit
+    $REGS{"CHAN${n}_OFF"} = {addr => 0x08 + $n * 4}; # 16bit
 }
 
 use utf8;
 
 use constant PROTOCOL => "I2C";
 
-sub _command {
-    my $self = shift;
-    my ($register, @bytes) = @_;
-    
-    my $regv = $REGS{$register}{addr};
-    
-    $self->protocol->write(pack("C*", $regv, @bytes))->get;
-    return;
-}
-
-# All our registers are single 8 bit values.
-sub _read_reg {
+sub _read_u8 {
     my $self = shift;
     my ($register) = @_;
     
@@ -85,6 +70,24 @@ sub _read_reg {
     my ($value) = $self->protocol->write_then_read("\0", 1)->get;
     
     return unpack("C", $value);
+}
+
+sub _write_u8 {
+    my $self = shift;
+    my ($register, $value) = @_;
+
+    my $regv = $REGS{$register}{addr};
+
+    $self->protocol->write(pack("C C", $regv, $value))->get;
+}
+
+sub _write_u16 {
+    my $self = shift;
+    my ($register, @values) = @_;
+
+    my $regv = $REGS{$register}{addr};
+
+    $self->protocol->write(pack("C (S<)*", $regv, @values))->get;
 }
 
 sub I2C_options {my $self = shift; return (addr => 0x40, @_)}; # pass it through, but allow the address to change if passed in, should use a constructor instead
@@ -130,13 +133,7 @@ Set a channel value, on and off time.  Lets you control the full on and off time
 sub set_channel_full_value {
     my ($self, $chan, $on_t, $off_t) = @_;
 
-    my ($on_h_t, $on_l_t)   = (($on_t & 0x0F00) >> 8,  ($on_t & 0xFF));
-    my ($off_h_t, $off_l_t) = (($off_t & 0x0F00) >> 8, ($off_t & 0xFF));
-
-    $self->_command("CHAN${chan}_ON_H", $on_h_t);
-    $self->_command("CHAN${chan}_OFF_H", $off_h_t);
-    $self->_command("CHAN${chan}_ON_L", $on_l_t);
-    $self->_command("CHAN${chan}_OFF_L", $off_l_t);
+    $self->_write_u16("CHAN${chan}_ON" => ($on_t  & 0x0FFF), ($off_t & 0x0FFF));
 }
 
 =head2 set_channel_on
@@ -150,10 +147,8 @@ Set a channel to full on.  No off time at all.
 sub set_channel_on {
     my ($self, $chan) = @_;
     
-    $self->_command("CHAN${chan}_ON_H" => 0x10); # Set bit 4 of ON high, this is the bit that sets the channel to full on
-    $self->_command("CHAN${chan}_ON_L" => 0x00);
-    $self->_command("CHAN${chan}_OFF_H"=> 0x00);
-    $self->_command("CHAN${chan}_OFF_L"=> 0x00);
+    # Set bit 4 of ON high, this is the bit that sets the channel to full on
+    $self->_write_u16("CHAN${chan}_ON" => 0x1000, 0x0000);
 }
 
 =head2 set_channel_off
@@ -167,10 +162,8 @@ Set a channel to full off.  No on time at all.
 sub set_channel_off {
     my ($self, $chan) = @_;
     
-    $self->_command("CHAN${chan}_ON_H" => 0x00);
-    $self->_command("CHAN${chan}_ON_L" => 0x00);
-    $self->_command("CHAN${chan}_OFF_H"=> 0x10); # Set bit 4 of OFF high, this is the bit that sets the channel to full off
-    $self->_command("CHAN${chan}_OFF_L"=> 0x00);
+    # Set bit 4 of OFF high, this is the bit that sets the channel to full off
+    $self->_write_u16("CHAN${chan}_ON"  => 0x0000, 0x1000);
 }
 
 =head2 set_default_mode
@@ -184,8 +177,8 @@ Reset the default mode back to the PCA9685.
 sub set_default_mode {
     my $self = shift;
     # Sets all the mode registers to the chip defaults
-    $self->_command(MODE1 => 0b0000_0001);
-    $self->_command(MODE2 => 0b000_00100);
+    $self->_write_u8(MODE1 => 0b0000_0001);
+    $self->_write_u8(MODE2 => 0b000_00100);
 }
 
 =head2 set_frequency
@@ -201,19 +194,19 @@ sub set_frequency {
     my ($freq) = @_;
     use Data::Dumper;
     
-    my $old_mode1 = $self->_read_reg("MODE1");
+    my $old_mode1 = $self->_read_u8("MODE1");
     my $new_mode1 = ($old_mode1 & 0x7f) | 0x10; # Set the chip to sleep, make sure reset is disabled while we do this to avoid noise/phase differences
     
-    $self->_command(MODE1 => $new_mode1);
+    $self->_write_u8(MODE1 => $new_mode1);
     
     my $divisor = int( ( 25000000 / ( 4096 * $freq ) ) + 0.5 ) - 1;
     if ($divisor < 3) { die "PCA9685 forces the scaler to be at least >= 3 (1526 Hz)." };
     if ($divisor > 255) { die "PCA9685 forces the scaler to be <= 255 (24Hz)." };
     
-    $self->_command(PRE_SCALE => $divisor);
-    $self->_command(MODE1 => $old_mode1);
+    $self->_write_u8(PRE_SCALE => $divisor);
+    $self->_write_u8(MODE1 => $old_mode1);
     usleep(5000);
-    $self->_command(MODE1 => $old_mode1 | 0x80); # turn on the external clock, should this be optional?
+    $self->_write_u8(MODE1 => $old_mode1 | 0x80); # turn on the external clock, should this be optional?
     
     my $realfreq = 25000000 / (($divisor + 1)*(4096));
     
@@ -231,7 +224,9 @@ Enable the device.  Must be the first thing done with the device.
 sub enable {
     my $self = shift;
 
-    $self->_command(MODE1 => 0);
+    # 0x20 == AI, auto-increment addresses during register transfer
+    #   Useful for 16bit read/write
+    $self->_write_u8(MODE1 => 0x20);
 
     return;
 }
