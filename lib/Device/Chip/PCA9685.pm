@@ -3,7 +3,7 @@ package Device::Chip::PCA9685;
 use strict;
 use warnings;
 
-our $VERSION = 'v0.2';
+our $VERSION = 'v0.9';
 
 use base qw/Device::Chip/;
 
