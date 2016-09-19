@@ -22,7 +22,7 @@ $chip->mount(
     $adapter->expect_write( "\x00\x00" ); # MODE1=!SLEEP
     $adapter->expect_write( "\x00\x80" ); # MODE1=RESTART
 
-    $chip->set_frequency( 400 );
+    $chip->set_frequency( 400 )->get;
 
     $adapter->check_and_clear( '$chip->set_frequency' );
 }

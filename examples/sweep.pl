@@ -20,9 +20,9 @@ my $adapter = Device::Chip::Adapter->new_from_description($ADAPTER);
 my $chip = Device::Chip::PCA9685->new();
 $chip->mount($adapter)->get;
 
-$chip->enable();
-$chip->set_frequency(400); # 400 Hz
+$chip->enable()->get;
+$chip->set_frequency(400)->get; # 400 Hz
 
 for (0..4095) {
-    $chip->set_channel_value(0, $_);
+    $chip->set_channel_value(0, $_)->get;
 }

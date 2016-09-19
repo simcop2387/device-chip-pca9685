@@ -7,6 +7,7 @@ our $VERSION = 'v0.2';
 
 use base qw/Device::Chip/;
 
+use Future;
 use Time::HiRes q/usleep/;
 
 =head1 NAME
@@ -28,12 +29,12 @@ This class implements a L<Device::Chip> interface for the PCA9685 chip, a 12-bit
     # This is the i2c bus on an RPI 2 B+
     $chip->mount($adapter, bus => '/dev/i2c-1')->get;
     
-    $chip->enable();
-    $chip->set_frequency(400); # 400 Hz
+    $chip->enable()->get;
+    $chip->set_frequency(400)->get; # 400 Hz
     
-    $chip->set_channel_value(10, 1024); # Set channel 10 to 25% (1024/4096)
+    $chip->set_channel_value(10, 1024)->get; # Set channel 10 to 25% (1024/4096)
     
-    $chip->set_channel_full_value(10, 1024, 3192); # Set channel 10 to ON at COUNTER=1024, and OFF at COUNTER=3192 (50% duty cycle, with 25% phase difference)
+    $chip->set_channel_full_value(10, 1024, 3192)->get; # Set channel 10 to ON at COUNTER=1024, and OFF at COUNTER=3192 (50% duty cycle, with 25% phase difference)
 
 =head1 METHODS
 
@@ -67,9 +68,10 @@ sub _read_u8 {
     
     my $regv = $REGS{$register}{addr};
     
-    my ($value) = $self->protocol->write_then_read("\0", 1)->get;
-    
-    return unpack("C", $value);
+    $self->protocol->write_then_read("\0", 1)->then( sub {
+        my ($value) = @_;
+        return Future->done(unpack("C", $value));
+    });
 }
 
 sub _write_u8 {
@@ -78,7 +80,7 @@ sub _write_u8 {
 
     my $regv = $REGS{$register}{addr};
 
-    $self->protocol->write(pack("C C", $regv, $value))->get;
+    $self->protocol->write(pack("C C", $regv, $value));
 }
 
 sub _write_u16 {
@@ -87,14 +89,14 @@ sub _write_u16 {
 
     my $regv = $REGS{$register}{addr};
 
-    $self->protocol->write(pack("C (S<)*", $regv, @values))->get;
+    $self->protocol->write(pack("C (S<)*", $regv, @values));
 }
 
 sub I2C_options {my $self = shift; return (addr => 0x40, @_)}; # pass it through, but allow the address to change if passed in, should use a constructor instead
 
 =head2 set_channel_value
 
-    $chip->set_channel_value($channel, $time_on, $offset = 0)
+    $chip->set_channel_value($channel, $time_on, $offset = 0)->get
     
 Sets a channel PWM time based on a single value from 0-4095.  Starts the channel to turn on at COUNTER = 0, and off at $time_on.
 C<$offset> lets you stagger the time that the channel comes on and off.  This lets you vary the times that channels go on and off 
@@ -124,7 +126,7 @@ sub set_channel_value {
 
 =head2 set_channel_full_value
 
-    $chip->set_channel_full_value($channel, $on_time, $off_time)
+    $chip->set_channel_full_value($channel, $on_time, $off_time)->get
     
 Set a channel value, on and off time.  Lets you control the full on and off time based on the 12 bit counter on the device.
 
@@ -138,7 +140,7 @@ sub set_channel_full_value {
 
 =head2 set_channel_on
 
-    $chip->set_channel_on($channel)
+    $chip->set_channel_on($channel)->get
     
 Set a channel to full on.  No off time at all.
 
@@ -153,7 +155,7 @@ sub set_channel_on {
 
 =head2 set_channel_off
 
-    $chip->set_channel_off($channel)
+    $chip->set_channel_off($channel)->get
     
 Set a channel to full off.  No on time at all.
 
@@ -168,7 +170,7 @@ sub set_channel_off {
 
 =head2 set_default_mode
 
-    $chip->set_default_mode()
+    $chip->set_default_mode()->get
     
 Reset the default mode back to the PCA9685.
 
@@ -177,8 +179,10 @@ Reset the default mode back to the PCA9685.
 sub set_default_mode {
     my $self = shift;
     # Sets all the mode registers to the chip defaults
-    $self->_write_u8(MODE1 => 0b0000_0001);
-    $self->_write_u8(MODE2 => 0b000_00100);
+    Future->needs_all(
+        $self->_write_u8(MODE1 => 0b0000_0001),
+        $self->_write_u8(MODE2 => 0b000_00100),
+    );
 }
 
 =head2 set_frequency
@@ -193,29 +197,36 @@ sub set_frequency {
     my $self = shift;
     my ($freq) = @_;
     use Data::Dumper;
-    
-    my $old_mode1 = $self->_read_u8("MODE1");
-    my $new_mode1 = ($old_mode1 & 0x7f) | 0x10; # Set the chip to sleep, make sure reset is disabled while we do this to avoid noise/phase differences
-    
-    $self->_write_u8(MODE1 => $new_mode1);
-    
+
     my $divisor = int( ( 25000000 / ( 4096 * $freq ) ) + 0.5 ) - 1;
     if ($divisor < 3) { die "PCA9685 forces the scaler to be at least >= 3 (1526 Hz)." };
     if ($divisor > 255) { die "PCA9685 forces the scaler to be <= 255 (24Hz)." };
-    
-    $self->_write_u8(PRE_SCALE => $divisor);
-    $self->_write_u8(MODE1 => $old_mode1);
-    usleep(5000);
-    $self->_write_u8(MODE1 => $old_mode1 | 0x80); # turn on the external clock, should this be optional?
-    
+
     my $realfreq = 25000000 / (($divisor + 1)*(4096));
     
-    return $realfreq;
+    my $old_mode1;
+    $self->_read_u8("MODE1")->then( sub {
+        ( $old_mode1 ) = @_;
+
+        my $new_mode1 = ($old_mode1 & 0x7f) | 0x10; # Set the chip to sleep, make sure reset is disabled while we do this to avoid noise/phase differences
+    
+        $self->_write_u8(MODE1 => $new_mode1);
+    })->then( sub {
+        Future->needs_all(
+            $self->_write_u8(PRE_SCALE => $divisor),
+            $self->_write_u8(MODE1 => $old_mode1),
+        );
+    })->then( sub {
+        usleep(5000);
+        $self->_write_u8(MODE1 => $old_mode1 | 0x80); # turn on the external clock, should this be optional?
+    })->then( sub {
+        return Future->done( $realfreq );
+    });
 }
 
 =head2 enable
 
-    $chip->enable()
+    $chip->enable()->get
 
 Enable the device.  Must be the first thing done with the device.
 
@@ -227,8 +238,6 @@ sub enable {
     # 0x20 == AI, auto-increment addresses during register transfer
     #   Useful for 16bit read/write
     $self->_write_u8(MODE1 => 0x20);
-
-    return;
 }
 
 =head1 AUTHOR

@@ -18,7 +18,7 @@ $chip->mount(
 {
     $adapter->expect_write( "\x06\x00\x00\x00\x00" );
 
-    $chip->set_channel_value( 0, 0 );
+    $chip->set_channel_value( 0, 0 )->get;
 
     $adapter->check_and_clear( '$chip->set_channel_value' );
 }
@@ -27,7 +27,7 @@ $chip->mount(
 {
     $adapter->expect_write( "\x06\x00\x10\x00\x00" );
 
-    $chip->set_channel_on( 0 );
+    $chip->set_channel_on( 0 )->get;
 
     $adapter->check_and_clear( '$chip->set_channel_on' );
 }
@@ -36,7 +36,7 @@ $chip->mount(
 {
     $adapter->expect_write( "\x06\x00\x00\x00\x10" );
 
-    $chip->set_channel_off( 0 );
+    $chip->set_channel_off( 0 )->get;
 
     $adapter->check_and_clear( '$chip->set_channel_off' );
 }

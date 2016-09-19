@@ -17,7 +17,7 @@ $chip->mount(
 {
     $adapter->expect_write( "\x00\x20" );
 
-    $chip->enable;
+    $chip->enable->get;
 
     $adapter->check_and_clear( '$chip->enable' );
 }
